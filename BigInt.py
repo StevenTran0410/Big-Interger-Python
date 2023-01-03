@@ -2,8 +2,10 @@ import numpy as np
 import random
 import multiprocessing as mp
 import time
+from numba import jit
 
 
+@jit(nopython=True)
 def remove_leading(string: str, c: str) -> str:  # Can use string.lstrip('0')
     count = 0
     for i in string:
@@ -23,6 +25,7 @@ def abs_sub(first, second):  # Absolute subtraction
 class UintN:
     test_base = [2, 3, 5, 7, 11, 13, 17, 19, 23,
                  29, 31, 37, 41, 43, 47, 53, 59, 61, 67, 71]
+    test_base_small = [2, 3, 5, 7]
 
     def __init__(self, BigInt=0) -> str:
         if BigInt == 0:  # Default constructor
@@ -334,18 +337,21 @@ class UintN:
             return True
 
         n = self.size()
-        if n < 4:
+        if n < 3:
             index = 1
-        elif n < 13:
-            index = int(n/2) - 1
+            list_base = random.sample(self.test_base_small, index)
         else:
-            index = int(n/2)
-            if index > 10:
-                index = 5
+            if n < 5:
+                index = 1
+            elif n < 13:
+                index = int(n/2) - 1
+            else:
+                index = int(n/2)
+                if index > 10:
+                    index = 5
+            list_base = random.sample(self.test_base, index)
 
-        pool = mp.Pool(11)
-
-        list_base = random.sample(self.test_base, index)
+        pool = mp.Pool(12)
 
         d = self - 1
         comparision = self - 1
@@ -356,7 +362,6 @@ class UintN:
             d //= 2
 
         flag = True
-
         args_1 = []
         for i in range(index):
             args_1.append((UintN(list_base[i]), d, self))
@@ -364,22 +369,90 @@ class UintN:
         drones_1 = pool.starmap_async(self.ModularExponentiation, args_1)
         base_1 = drones_1.get()
 
+        index_wrong = []
         for i in range(index):
             if base_1[i] != 1 and base_1[i] != comparision:
-                args_2 = []
-                for r in range(1, num_exponent):
-                    args_2.append((UintN(list_base[i]), UintN(2**r)*d, self))
+                index_wrong.append(i)
 
+        if len(index_wrong):
+            flag = False
+        else:
+            return True
+
+        if num_exponent < 13:
+            args_2 = []
+            for i in range(len(index_wrong)):
+                for r in range(1, num_exponent):
+                    args_2.append(
+                        (UintN(list_base[index_wrong[i]]), UintN(2**r)*d, self))
+
+            if len(args_2):
                 drones_2 = pool.starmap_async(
                     self.ModularExponentiation, args_2)
                 base_2 = drones_2.get()
-                for r in range(0, num_exponent - 1):
-                    if base_2[r] != comparision and base_2[r] != 1:
-                        flag = False
+
+                for i in range(len(index_wrong)):
+                    for r in range(0, num_exponent - 1):
+                        if base_2[i + r] != comparision and base_2[i + r] != 1:
+                            flag = False
+                        else:
+                            flag = True
+                            break
+                    if not flag:
+                        return flag
+            return flag
+        else:
+            for i in range(len(index_wrong)):
+                loop_todo = num_exponent//12 + 1
+                flag1 = False
+                for l in range(loop_todo):
+                    args_2 = []
+                    if (l+1)*12+1 > num_exponent:
+                        temp_exponent = num_exponent
+                        flag1 = True
                     else:
-                        flag = True
+                        temp_exponent = (l+1)*12+1
+                    for r in range(l*12+1, temp_exponent):
+                        args_2.append(
+                            (UintN(list_base[index_wrong[i]]), UintN(2**r)*d, self))
+
+                    drones_2 = pool.starmap_async(
+                        self.ModularExponentiation, args_2)
+                    base_2 = drones_2.get()
+
+                    for r in range(len(base_2)):
+                        if base_2[r] != comparision and base_2[r] != 1:
+                            flag = False
+                        else:
+                            flag = True
+                            break
+                    if flag:
                         break
-        return flag
+                    if flag1 and not flag:
+                        return flag
+            return flag
+
+        # for i in range(index):
+        #     if base_1[i] != 1 and base_1[i] != comparision:
+        #         args_2 = []
+        #         for r in range(1, num_exponent):
+        #             args_2.append((UintN(list_base[i]), UintN(2**r)*d, self))
+
+        #         if len(args_2):
+        #             drones_2 = pool.starmap_async(
+        #                 self.ModularExponentiation, args_2)
+        #             base_2 = drones_2.get()
+        #             for r in range(0, num_exponent - 1):
+        #                 if base_2[r] != comparision and base_2[r] != 1:
+        #                     flag = False
+        #                 else:
+        #                     flag = True
+        #                     break
+        #             if not flag:
+        #                 return flag
+        #         else:
+        #             return False
+        # return flag
 
     def __lt__(self, second) -> bool:
         if not isinstance(second, UintN):
@@ -413,6 +486,11 @@ class UintN:
             second = UintN(second)
         return self.BigInt == second.BigInt
 
+    def __ne__(self, second) -> bool:
+        if not isinstance(second, UintN):
+            second = UintN(second)
+        return not self.BigInt == second.BigInt
+
     def print(self):
         for i in range(len(self.BigInt), 0, -1):
             print(ord(self.BigInt[i - 1]), end='')
@@ -420,15 +498,22 @@ class UintN:
 
 
 if __name__ == '__main__':
-    e4 = UintN(
-        '6864797660130609714981900799081393217269435300143305409394463459185543183397656052122559640661454554977296311391480858037121987999716643812574028291115057151')
-    # e4 = UintN('20988936657440586486151264256610222593863921')
-    # e4 = UintN('485903650630522852040551973461')
-    start = time.time()
-    flag = e4.PrimeNumber_MillerRabinsImprove()
-    end = time.time()
-    print(end - start)
-    if flag:
-        print(True)
-    else:
-        print(False)
+    # e4 = UintN(
+    #     '531137992816767098689588206552468627329593117727031923199444138200403559860852242739162502265229285668889329486246501015346579337652707239409519978766587351943831270835393219031728127')
+    # # e4 = UintN('20988936657440586486151264256610222593863921')
+    # # e4 = UintN('485903650630522852040551973461')
+    # # e4 = UintN(
+    # #     '2276692161613869287595910706265082768102478876972407831168291009008931300968497153')
+    # # e4 = UintN('22766921615560195913014039006279231080497153')
+    # # e4 = UintN(
+    # #     '4237080979868607742750808600846638318022863593147774739556427943294937')
+    # start = time.time()
+    # flag = e4.PrimeNumber_MillerRabinsImprove()
+    # end = time.time()
+    # print(end - start)
+    # if flag:
+    #     print(True)
+    # else:
+    #     print(False)
+
+    print(mp.cpu_count())
